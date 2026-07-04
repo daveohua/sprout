@@ -12,7 +12,7 @@
  * it just has to return the same `SproutEvent` shape.
  */
 
-import type { AvailabilitySlot, Connection, SproutEvent, User } from "@/features/post-event/types";
+import type { AvailabilitySlot, Connection, SproutEvent, User } from "../types";
 
 import {
   activityCatalog,
