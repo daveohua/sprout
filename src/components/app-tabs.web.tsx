@@ -27,6 +27,12 @@ export default function AppTabs() {
           <TabTrigger name="explore" href="/explore" asChild>
             <TabButton>Explore</TabButton>
           </TabTrigger>
+          <TabTrigger name="profile" href="/profile" asChild>
+            <TabButton>Profile</TabButton>
+          </TabTrigger>
+          <TabTrigger name="join" href="/join" asChild>
+            <TabButton>Join</TabButton>
+          </TabTrigger>
           <TabTrigger name="post-event" href="/post-event" asChild>
             <TabButton>Post-event</TabButton>
           </TabTrigger>
