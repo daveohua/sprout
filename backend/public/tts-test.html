@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>TTS Test</title>
+        <style>
+            body {
+                font-family: system-ui, sans-serif;
+                max-width: 600px;
+                margin: 2rem auto;
+                padding: 0 1rem;
+            }
+            textarea {
+                width: 100%;
+                height: 120px;
+                font-size: 1rem;
+            }
+            button {
+                margin-top: 0.5rem;
+                padding: 0.6rem 1.2rem;
+                font-size: 1rem;
+                cursor: pointer;
+            }
+            #status {
+                margin-top: 1rem;
+                color: #555;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>ElevenLabs TTS Test</h1>
+
+        <h2>HTTP POST /tts</h2>
+        <textarea id="httpText">Hello from the HTTP endpoint.</textarea>
+        <br />
+        <button id="httpBtn">Download MP3</button>
+
+        <h2>Socket.IO stream</h2>
+        <textarea id="socketText">Hello from the Socket.IO stream.</textarea>
+        <br />
+        <button id="socketBtn">Play Stream</button>
+        <div id="status">Ready</div>
+
+        <script src="/socket.io/socket.io.js"></script>
+        <script>
+            const socket = io();
+            const audioCtx = new (
+                window.AudioContext || window.webkitAudioContext
+            )();
+            let chunks = [];
+
+            socket.on("tts:start", () => {
+                chunks = [];
+                document.getElementById("status").textContent =
+                    "Streaming audio...";
+            });
+
+            socket.on("tts:chunk", (chunk) => {
+                // chunk may arrive as ArrayBuffer or Buffer — normalise to Uint8Array
+                chunks.push(
+                    chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk),
+                );
+            });
+
+            socket.on("tts:end", async () => {
+                document.getElementById("status").textContent = "Playing...";
+                const blob = new Blob(chunks, { type: "audio/mpeg" });
+                const arrayBuffer = await blob.arrayBuffer();
+                const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+                const source = audioCtx.createBufferSource();
+                source.buffer = audioBuffer;
+                source.connect(audioCtx.destination);
+                source.start(0);
+                source.onended = () => {
+                    document.getElementById("status").textContent = "Finished";
+                };
+            });
+
+            socket.on("tts:error", (err) => {
+                document.getElementById("status").textContent =
+                    "Error: " + (err.error || JSON.stringify(err));
+            });
+
+            document
+                .getElementById("httpBtn")
+                .addEventListener("click", async () => {
+                    const text = document.getElementById("httpText").value;
+                    const res = await fetch("/tts", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ text }),
+                    });
+                    const blob = await res.blob();
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = "tts.mp3";
+                    a.click();
+                    URL.revokeObjectURL(url);
+                });
+
+            document
+                .getElementById("socketBtn")
+                .addEventListener("click", () => {
+                    if (audioCtx.state === "suspended") audioCtx.resume();
+                    const text = document.getElementById("socketText").value;
+                    socket.emit("tts:stream", { text });
+                });
+        </script>
+    </body>
+</html>
