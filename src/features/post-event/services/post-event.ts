@@ -34,6 +34,14 @@ const reviews: ConnectionReview[] = [];
 let plannedEvents: SproutEvent[] = [];
 const calendarItems: CalendarItem[] = [];
 
+/**
+ * Working set of users/connections the service operates on. Starts as a copy
+ * of the mock data, but can be replaced by `seedConnectionsFromLobby` when
+ * the user comes out of the join flow with real (demo-generated) connections.
+ */
+let workingUsers: User[] = [...mockUsers];
+let workingConnections: Connection[] = [...mockConnections];
+
 /** Swappable planner implementation (lookup now, LLM later). */
 let planner: EventPlanner = lookupPlanner;
 
@@ -50,11 +58,11 @@ export function getCurrentUserId(): string {
 }
 
 export async function getUser(id: string): Promise<User | undefined> {
-  return mockUsers.find((user) => user.id === id);
+  return workingUsers.find((user) => user.id === id);
 }
 
 export async function getUsers(ids: string[]): Promise<User[]> {
-  return mockUsers.filter((user) => ids.includes(user.id));
+  return workingUsers.filter((user) => ids.includes(user.id));
 }
 
 /** Connections from the latest activity that the current user hasn't reviewed yet. */
@@ -68,14 +76,72 @@ export async function getPendingReviews(): Promise<
   );
 
   const pending: { connection: Connection; otherUser: User }[] = [];
-  for (const connection of mockConnections) {
+  for (const connection of workingConnections) {
     if (reviewedIds.has(connection.id)) continue;
     if (!connection.userIds.includes(CURRENT_USER_ID)) continue;
     const otherId = connection.userIds.find((id) => id !== CURRENT_USER_ID);
-    const otherUser = mockUsers.find((user) => user.id === otherId);
+    const otherUser = workingUsers.find((user) => user.id === otherId);
     if (otherUser) pending.push({ connection, otherUser });
   }
   return pending;
+}
+
+/**
+ * Shape the join lobby produces per connection. Only `id` and `name` are
+ * required; the rest is display metadata carried through for the UI.
+ */
+export interface LobbyConnection {
+  id: string;
+  name: string;
+  emoji?: string;
+  metVia?: string;
+}
+
+/**
+ * Replace the review backlog with connections coming out of the join flow.
+ * Each lobby person is synthesized into a domain User with overlapping
+ * availability + shared interests with the current user so the planner has
+ * something concrete to plan. Existing reviews/plans/calendar are cleared —
+ * this represents a fresh event.
+ */
+export function seedConnectionsFromLobby(
+  lobbyConnections: LobbyConnection[],
+): void {
+  reviews.length = 0;
+  plannedEvents = [];
+  calendarItems.length = 0;
+
+  const me = mockUsers.find((user) => user.id === CURRENT_USER_ID);
+  if (!me) return;
+
+  workingUsers = [me];
+  workingConnections = [];
+
+  const now = new Date().toISOString();
+  const interestPool = me.interests;
+
+  lobbyConnections.forEach((lobbyConn, index) => {
+    const syntheticId = `u-lobby-${lobbyConn.id}`;
+    // Rotate through the current user's interests so every synth shares at
+    // least one with them, but different people get different pairs — the
+    // planner clusters by shared interest and this gives it variety.
+    const interests = [
+      interestPool[index % interestPool.length],
+      interestPool[(index + 1) % interestPool.length],
+    ];
+    workingUsers.push({
+      id: syntheticId,
+      name: lobbyConn.name,
+      interests,
+      availability: [...me.availability],
+    });
+    workingConnections.push({
+      id: `c-lobby-${lobbyConn.id}`,
+      userIds: [CURRENT_USER_ID, syntheticId],
+      originEventId: "e-origin-lobby",
+      connectedAt: now,
+    });
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -107,7 +173,9 @@ export async function getApprovedConnections(): Promise<Connection[]> {
       )
       .map((review) => review.connectionId),
   );
-  return mockConnections.filter((connection) => approvedIds.has(connection.id));
+  return workingConnections.filter((connection) =>
+    approvedIds.has(connection.id),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -124,7 +192,7 @@ export async function planFollowUps(): Promise<SproutEvent[]> {
   const events = await planner.planFollowUpEvents({
     currentUserId: CURRENT_USER_ID,
     approvedConnections,
-    users: mockUsers,
+    users: workingUsers,
   });
   for (const event of events) {
     event.status = "confirmed";
@@ -187,7 +255,7 @@ export async function getCalendarItems(): Promise<CalendarItem[]> {
 
 /** The current user's free slots (their "vacancy" in the in-app calendar). */
 export async function getMyAvailability(): Promise<AvailabilitySlot[]> {
-  const me = mockUsers.find((user) => user.id === CURRENT_USER_ID);
+  const me = workingUsers.find((user) => user.id === CURRENT_USER_ID);
   return me?.availability ?? [];
 }
 
@@ -217,4 +285,6 @@ export function resetPostEventState() {
   reviews.length = 0;
   plannedEvents = [];
   calendarItems.length = 0;
+  workingUsers = [...mockUsers];
+  workingConnections = [...mockConnections];
 }
