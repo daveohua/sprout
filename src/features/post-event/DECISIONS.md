@@ -103,3 +103,23 @@ is clean. Newest at the bottom. Format: date — decision — why — impact.
 - Domain types moved from `src/types/` to `src/features/post-event/types.ts`;
   when the team agrees on shared contracts they can be promoted to a common
   location in one move.
+
+## 2026-07-04 — Merged origin/frontend; notification API fixes
+
+- Merged the team's `frontend` branch (profile + join screens,
+  expo-notifications). Tab conflict resolved by keeping all tabs.
+- Fixed pre-SDK 53 expo-notifications usage in `src/app/profile.tsx` per the
+  v57 docs: `shouldShowBanner`/`shouldShowList` handler keys,
+  `subscription.remove()` cleanup, typed `TIME_INTERVAL` trigger, and a
+  missing `keyboardView` style. Frontend owners should pull these fixes back.
+
+## 2026-07-04 — Calendar tab shows vacancy + booked events
+
+- New `src/app/calendar.tsx` (owned by this slice) renders an agenda grouped
+  by day: dashed "Free" cards for availability slots and solid "Booked" cards
+  for confirmed sprout events. Data comes from `getMyAvailability()` (new
+  service function) and `getCalendarItems()`.
+- Uses `useFocusEffect` so events booked in the post-event flow appear
+  immediately when switching tabs.
+- Read-only for now: editing free slots belongs to the profile slice;
+  free-slot display does not yet subtract booked time (hackathon scope).

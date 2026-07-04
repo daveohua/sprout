@@ -53,6 +53,15 @@ export default function AppTabs() {
           renderingMode="template"
         />
       </NativeTabs.Trigger>
+
+      <NativeTabs.Trigger name="calendar">
+        <NativeTabs.Trigger.Label>Calendar</NativeTabs.Trigger.Label>
+        {/* TODO: dedicated icon — reusing home for now */}
+        <NativeTabs.Trigger.Icon
+          src={require("@/assets/images/tabIcons/home.png")}
+          renderingMode="template"
+        />
+      </NativeTabs.Trigger>
     </NativeTabs>
   );
 }

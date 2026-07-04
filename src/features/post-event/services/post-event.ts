@@ -15,6 +15,7 @@
  */
 
 import type {
+  AvailabilitySlot,
   CalendarItem,
   Connection,
   ConnectionReview,
@@ -182,6 +183,12 @@ function createCalendarItems(event: SproutEvent) {
 /** The current user's sprout calendar entries (Google-sync-ready shape). */
 export async function getCalendarItems(): Promise<CalendarItem[]> {
   return calendarItems.filter((item) => item.userId === CURRENT_USER_ID);
+}
+
+/** The current user's free slots (their "vacancy" in the in-app calendar). */
+export async function getMyAvailability(): Promise<AvailabilitySlot[]> {
+  const me = mockUsers.find((user) => user.id === CURRENT_USER_ID);
+  return me?.availability ?? [];
 }
 
 /** Format an ISO datetime as the compact UTC form Google Calendar links expect. */

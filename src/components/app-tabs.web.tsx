@@ -36,6 +36,9 @@ export default function AppTabs() {
           <TabTrigger name="post-event" href="/post-event" asChild>
             <TabButton>Post-event</TabButton>
           </TabTrigger>
+          <TabTrigger name="calendar" href="/calendar" asChild>
+            <TabButton>Calendar</TabButton>
+          </TabTrigger>
         </CustomTabList>
       </TabList>
     </Tabs>
