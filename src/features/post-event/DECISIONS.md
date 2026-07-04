@@ -90,3 +90,16 @@ is clean. Newest at the bottom. Format: date — decision — why — impact.
   Google Calendar — no OAuth, no API keys, demo-safe.
 - Full two-way sync (Google Calendar API + OAuth) stays a stretch goal;
   `CalendarItem` is already shaped for it.
+
+## 2026-07-04 — Slice isolated in `src/features/post-event/`
+
+- All post-event code, types, mock data, agent context (`CLAUDE.md`), and this
+  decisions log live in `src/features/post-event/` to avoid merge conflicts
+  with parallel slices. Root `AGENTS.md`/`CLAUDE.md` restored to the shared
+  master versions.
+- Files this slice owns outside the folder (small, conflict-unlikely):
+  `src/app/post-event.tsx` (route) and the tab entries in
+  `src/components/app-tabs.tsx` / `app-tabs.web.tsx`.
+- Domain types moved from `src/types/` to `src/features/post-event/types.ts`;
+  when the team agrees on shared contracts they can be promoted to a common
+  location in one move.

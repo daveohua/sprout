@@ -5,7 +5,7 @@
  * `post-event.ts` — screens should never import this file directly.
  */
 
-import type { Connection, User } from "@/types";
+import type { Connection, User } from "@/features/post-event/types";
 
 /** The signed-in user, until auth exists. */
 export const CURRENT_USER_ID = "u-me";

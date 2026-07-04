@@ -20,7 +20,7 @@ import type {
   ConnectionReview,
   SproutEvent,
   User,
-} from "@/types";
+} from "@/features/post-event/types";
 
 import { lookupPlanner, type EventPlanner } from "./event-planner";
 import { CURRENT_USER_ID, mockConnections, mockUsers } from "./mock-data";

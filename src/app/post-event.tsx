@@ -12,8 +12,8 @@ import {
   optOutOfEvent,
   planFollowUps,
   submitReviews,
-} from "@/services/post-event";
-import type { Connection, SproutEvent, User } from "@/types";
+} from "@/features/post-event/services/post-event";
+import type { Connection, SproutEvent, User } from "@/features/post-event/types";
 
 type Phase = "review" | "planning" | "planned";
 
