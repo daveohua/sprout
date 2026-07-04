@@ -69,6 +69,24 @@ is clean. Newest at the bottom. Format: date — decision — why — impact.
 
 - Confirming an event = status `confirmed` + `CalendarItem` written for every
   attendee. No real venue booking in hackathon scope.
-- **Demo shortcut:** with mock data, other attendees can't respond, so the
-  current user accepting auto-accepts for everyone (`respondToEvent` in
-  `post-event.ts`). Replace with real per-attendee responses at integration.
+
+## 2026-07-04 — Attendance is opt-out, not opt-in
+
+- To remove friction from connection, planned events are **auto-confirmed**:
+  every attendee is accepted by default and calendar items are written
+  immediately when planning runs (`planFollowUps`). Superseded the earlier
+  accept/decline proposal flow — `respondToEvent` was replaced by
+  `optOutOfEvent`.
+- Opting out removes the user from the event and deletes their calendar item;
+  if fewer than two attendees remain, the event is cancelled.
+- `SproutEvent.status = 'proposed'` remains in the type for planner output,
+  but events surface to users as already-confirmed plans.
+
+## 2026-07-04 — Google Calendar import via "add event" link
+
+- `getGoogleCalendarUrl(event)` in `post-event.ts` builds a
+  `calendar.google.com/calendar/render?action=TEMPLATE` URL; the UI opens it
+  with `expo-web-browser`. One tap imports the event into the user's own
+  Google Calendar — no OAuth, no API keys, demo-safe.
+- Full two-way sync (Google Calendar API + OAuth) stays a stretch goal;
+  `CalendarItem` is already shaped for it.

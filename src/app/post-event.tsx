@@ -1,19 +1,21 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import * as WebBrowser from "expo-web-browser";
+import { useCallback, useEffect, useState } from "react";
+import { Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+import { ThemedText } from "@/components/themed-text";
+import { ThemedView } from "@/components/themed-view";
+import { BottomTabInset, MaxContentWidth, Spacing } from "@/constants/theme";
 import {
+  getGoogleCalendarUrl,
   getPendingReviews,
+  optOutOfEvent,
   planFollowUps,
-  respondToEvent,
   submitReviews,
-} from '@/services/post-event';
-import type { Connection, SproutEvent, User } from '@/types';
+} from "@/services/post-event";
+import type { Connection, SproutEvent, User } from "@/types";
 
-type Phase = 'review' | 'planning' | 'proposals';
+type Phase = "review" | "planning" | "planned";
 
 interface PendingReview {
   connection: Connection;
@@ -21,50 +23,66 @@ interface PendingReview {
 }
 
 export default function PostEventScreen() {
-  const [phase, setPhase] = useState<Phase>('review');
+  const [phase, setPhase] = useState<Phase>("review");
   const [pending, setPending] = useState<PendingReview[]>([]);
-  const [verdicts, setVerdicts] = useState<Record<string, 'approved' | 'declined'>>({});
+  const [verdicts, setVerdicts] = useState<
+    Record<string, "approved" | "declined">
+  >({});
   const [events, setEvents] = useState<SproutEvent[]>([]);
 
   useEffect(() => {
     getPendingReviews().then(setPending);
   }, []);
 
-  const setVerdict = useCallback((connectionId: string, verdict: 'approved' | 'declined') => {
-    setVerdicts((current) => ({ ...current, [connectionId]: verdict }));
-  }, []);
+  const setVerdict = useCallback(
+    (connectionId: string, verdict: "approved" | "declined") => {
+      setVerdicts((current) => ({ ...current, [connectionId]: verdict }));
+    },
+    [],
+  );
 
   const finishReview = useCallback(async () => {
-    setPhase('planning');
+    setPhase("planning");
     await submitReviews(
-      Object.entries(verdicts).map(([connectionId, verdict]) => ({ connectionId, verdict })),
+      Object.entries(verdicts).map(([connectionId, verdict]) => ({
+        connectionId,
+        verdict,
+      })),
     );
     const planned = await planFollowUps();
     setEvents(planned);
-    setPhase('proposals');
+    setPhase("planned");
   }, [verdicts]);
 
-  const respond = useCallback(async (eventId: string, response: 'accept' | 'decline') => {
-    const updated = await respondToEvent(eventId, response);
+  const optOut = useCallback(async (eventId: string) => {
+    const updated = await optOutOfEvent(eventId);
     if (updated) {
       setEvents((current) =>
-        current.map((event) => (event.id === updated.id ? { ...updated } : event)),
+        current.map((event) =>
+          event.id === updated.id ? { ...updated } : event,
+        ),
       );
     }
   }, []);
 
-  const allReviewed = pending.length > 0 && pending.every(({ connection }) => verdicts[connection.id]);
+  const addToGoogle = useCallback((event: SproutEvent) => {
+    WebBrowser.openBrowserAsync(getGoogleCalendarUrl(event));
+  }, []);
+
+  const allReviewed =
+    pending.length > 0 &&
+    pending.every(({ connection }) => verdicts[connection.id]);
 
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
         <ScrollView contentContainerStyle={styles.scrollContent}>
-          {phase === 'review' && (
+          {phase === "review" && (
             <>
               <ThemedText type="subtitle">Who did you click with?</ThemedText>
               <ThemedText themeColor="textSecondary">
-                Approve the people you&apos;d like to see again. We&apos;ll plan something for
-                you based on shared interests and free time.
+                Approve the people you&apos;d like to see again. We&apos;ll plan
+                something for you based on shared interests and free time.
               </ThemedText>
               {pending.map(({ connection, otherUser }) => (
                 <ReviewCard
@@ -87,20 +105,25 @@ export default function PostEventScreen() {
             </>
           )}
 
-          {phase === 'planning' && (
+          {phase === "planning" && (
             <ThemedText type="subtitle">Planting seeds…</ThemedText>
           )}
 
-          {phase === 'proposals' && (
+          {phase === "planned" && (
             <>
-              <ThemedText type="subtitle">Your next hangouts</ThemedText>
+              <ThemedText type="subtitle">You&apos;re booked in 🌱</ThemedText>
               <ThemedText themeColor="textSecondary">
                 {events.length > 0
-                  ? 'Based on shared interests and everyone’s free slots.'
-                  : 'No overlapping availability found — try approving more connections or adding free slots to your calendar.'}
+                  ? "These are on your calendar — based on shared interests and everyone’s free slots. Can’t make one? Just opt out."
+                  : "No overlapping availability found — try approving more connections or adding free slots to your calendar."}
               </ThemedText>
               {events.map((event) => (
-                <EventCard key={event.id} event={event} onRespond={respond} />
+                <EventCard
+                  key={event.id}
+                  event={event}
+                  onOptOut={optOut}
+                  onAddToGoogle={addToGoogle}
+                />
               ))}
             </>
           )}
@@ -116,25 +139,25 @@ function ReviewCard({
   onVerdict,
 }: {
   user: User;
-  verdict?: 'approved' | 'declined';
-  onVerdict: (verdict: 'approved' | 'declined') => void;
+  verdict?: "approved" | "declined";
+  onVerdict: (verdict: "approved" | "declined") => void;
 }) {
   return (
     <ThemedView type="backgroundElement" style={styles.card}>
       <ThemedText type="smallBold">{user.name}</ThemedText>
       <ThemedText type="small" themeColor="textSecondary">
-        {user.interests.join(' · ')}
+        {user.interests.join(" · ")}
       </ThemedText>
       <View style={styles.buttonRow}>
         <ChoiceButton
           label="Good match"
-          selected={verdict === 'approved'}
-          onPress={() => onVerdict('approved')}
+          selected={verdict === "approved"}
+          onPress={() => onVerdict("approved")}
         />
         <ChoiceButton
           label="Not for me"
-          selected={verdict === 'declined'}
-          onPress={() => onVerdict('declined')}
+          selected={verdict === "declined"}
+          onPress={() => onVerdict("declined")}
         />
       </View>
     </ThemedView>
@@ -143,18 +166,20 @@ function ReviewCard({
 
 function EventCard({
   event,
-  onRespond,
+  onOptOut,
+  onAddToGoogle,
 }: {
   event: SproutEvent;
-  onRespond: (eventId: string, response: 'accept' | 'decline') => void;
+  onOptOut: (eventId: string) => void;
+  onAddToGoogle: (event: SproutEvent) => void;
 }) {
   const start = new Date(event.startTime);
   const when = start.toLocaleString(undefined, {
-    weekday: 'long',
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
+    weekday: "long",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
   });
 
   return (
@@ -164,18 +189,21 @@ function EventCard({
         {when} · {event.location.name}
       </ThemedText>
       <ThemedText type="small">{event.description}</ThemedText>
-      {event.status === 'proposed' && (
+      {event.status === "confirmed" && (
         <View style={styles.buttonRow}>
-          <ChoiceButton label="I'm in" onPress={() => onRespond(event.id, 'accept')} />
-          <ChoiceButton label="Skip" onPress={() => onRespond(event.id, 'decline')} />
+          <ChoiceButton
+            label="Add to Google Calendar"
+            onPress={() => onAddToGoogle(event)}
+          />
+          <ChoiceButton
+            label="Can't make it"
+            onPress={() => onOptOut(event.id)}
+          />
         </View>
       )}
-      {event.status === 'confirmed' && (
-        <ThemedText type="smallBold">Confirmed — added to your calendar 🌱</ThemedText>
-      )}
-      {event.status === 'cancelled' && (
+      {event.status === "cancelled" && (
         <ThemedText type="small" themeColor="textSecondary">
-          Skipped
+          You opted out
         </ThemedText>
       )}
     </ThemedView>
@@ -192,10 +220,14 @@ function ChoiceButton({
   onPress: () => void;
 }) {
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => pressed && styles.pressed}>
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => pressed && styles.pressed}
+    >
       <ThemedView
-        type={selected ? 'backgroundSelected' : 'background'}
-        style={styles.choiceButton}>
+        type={selected ? "backgroundSelected" : "background"}
+        style={styles.choiceButton}
+      >
         <ThemedText type="small">{label}</ThemedText>
       </ThemedView>
     </Pressable>
@@ -215,7 +247,11 @@ function PrimaryButton({
     <Pressable
       onPress={onPress}
       disabled={disabled}
-      style={({ pressed }) => [disabled && styles.disabled, pressed && styles.pressed]}>
+      style={({ pressed }) => [
+        disabled && styles.disabled,
+        pressed && styles.pressed,
+      ]}
+    >
       <ThemedView type="backgroundSelected" style={styles.primaryButton}>
         <ThemedText type="smallBold">{label}</ThemedText>
       </ThemedView>
@@ -226,8 +262,8 @@ function PrimaryButton({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    flexDirection: 'row',
-    justifyContent: 'center',
+    flexDirection: "row",
+    justifyContent: "center",
   },
   safeArea: {
     flex: 1,
@@ -244,7 +280,7 @@ const styles = StyleSheet.create({
     borderRadius: Spacing.three,
   },
   buttonRow: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: Spacing.two,
     marginTop: Spacing.one,
   },
@@ -254,7 +290,7 @@ const styles = StyleSheet.create({
     borderRadius: Spacing.three,
   },
   primaryButton: {
-    alignItems: 'center',
+    alignItems: "center",
     paddingVertical: Spacing.two,
     borderRadius: Spacing.three,
   },

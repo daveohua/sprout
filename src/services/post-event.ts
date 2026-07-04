@@ -7,9 +7,11 @@
  * Flow:
  *   1. `getPendingReviews()` — connections from the last activity awaiting review
  *   2. `submitReviews()` — record approved/declined verdicts
- *   3. `planFollowUps()` — run the planner over approved connections
- *   4. `respondToEvent()` — accept/decline a proposed event; acceptance by
- *      all attendees confirms it and writes calendar items
+ *   3. `planFollowUps()` — run the planner over approved connections.
+ *      Planned events are AUTO-CONFIRMED: everyone is attending by default
+ *      and calendar items are written immediately. Attendance is opt-out
+ *      (`optOutOfEvent`), not opt-in — the point is to remove friction from
+ *      connection.
  */
 
 import type {
@@ -18,10 +20,10 @@ import type {
   ConnectionReview,
   SproutEvent,
   User,
-} from '@/types';
+} from "@/types";
 
-import { lookupPlanner, type EventPlanner } from './event-planner';
-import { CURRENT_USER_ID, mockConnections, mockUsers } from './mock-data';
+import { lookupPlanner, type EventPlanner } from "./event-planner";
+import { CURRENT_USER_ID, mockConnections, mockUsers } from "./mock-data";
 
 // ---------------------------------------------------------------------------
 // In-memory state (stands in for the backend)
@@ -80,7 +82,7 @@ export async function getPendingReviews(): Promise<
 // ---------------------------------------------------------------------------
 
 export async function submitReviews(
-  verdicts: { connectionId: string; verdict: ConnectionReview['verdict'] }[],
+  verdicts: { connectionId: string; verdict: ConnectionReview["verdict"] }[],
 ): Promise<void> {
   const now = new Date().toISOString();
   for (const { connectionId, verdict } of verdicts) {
@@ -98,7 +100,9 @@ export async function getApprovedConnections(): Promise<Connection[]> {
   const approvedIds = new Set(
     reviews
       .filter(
-        (review) => review.reviewerId === CURRENT_USER_ID && review.verdict === 'approved',
+        (review) =>
+          review.reviewerId === CURRENT_USER_ID &&
+          review.verdict === "approved",
       )
       .map((review) => review.connectionId),
   );
@@ -109,7 +113,11 @@ export async function getApprovedConnections(): Promise<Connection[]> {
 // Planning & event responses
 // ---------------------------------------------------------------------------
 
-/** Run the planner over the approved connections and store the proposals. */
+/**
+ * Run the planner over the approved connections. Every planned event is
+ * confirmed immediately with all attendees accepted, and calendar items are
+ * written for everyone — attending is the default.
+ */
 export async function planFollowUps(): Promise<SproutEvent[]> {
   const approvedConnections = await getApprovedConnections();
   const events = await planner.planFollowUpEvents({
@@ -117,6 +125,11 @@ export async function planFollowUps(): Promise<SproutEvent[]> {
     approvedConnections,
     users: mockUsers,
   });
+  for (const event of events) {
+    event.status = "confirmed";
+    event.acceptedIds = [...event.attendeeIds];
+    createCalendarItems(event);
+  }
   plannedEvents = events;
   return events;
 }
@@ -126,29 +139,28 @@ export async function getPlannedEvents(): Promise<SproutEvent[]> {
 }
 
 /**
- * Accept or decline a proposed event on behalf of the current user.
- * When every attendee has accepted, the event is confirmed and calendar
- * items are created for all attendees.
- *
- * NOTE: with mock data other attendees can't respond, so for demo purposes
- * accepting as the current user auto-accepts for everyone.
+ * Opt the current user out of a confirmed event (attendance is the default;
+ * leaving is the action). Removes them from the attendee/accepted lists and
+ * deletes their calendar item. If fewer than two attendees remain, the event
+ * is cancelled outright.
  */
-export async function respondToEvent(
+export async function optOutOfEvent(
   eventId: string,
-  response: 'accept' | 'decline',
 ): Promise<SproutEvent | undefined> {
   const event = plannedEvents.find((candidate) => candidate.id === eventId);
   if (!event) return undefined;
 
-  if (response === 'decline') {
-    event.status = 'cancelled';
-    return event;
-  }
+  event.attendeeIds = event.attendeeIds.filter((id) => id !== CURRENT_USER_ID);
+  event.acceptedIds = event.acceptedIds.filter((id) => id !== CURRENT_USER_ID);
 
-  // Demo shortcut: everyone accepts when the current user does.
-  event.acceptedIds = [...event.attendeeIds];
-  event.status = 'confirmed';
-  createCalendarItems(event);
+  const itemIndex = calendarItems.findIndex(
+    (item) => item.eventId === eventId && item.userId === CURRENT_USER_ID,
+  );
+  if (itemIndex !== -1) calendarItems.splice(itemIndex, 1);
+
+  if (event.attendeeIds.length < 2) {
+    event.status = "cancelled";
+  }
   return event;
 }
 
@@ -170,6 +182,27 @@ function createCalendarItems(event: SproutEvent) {
 /** The current user's sprout calendar entries (Google-sync-ready shape). */
 export async function getCalendarItems(): Promise<CalendarItem[]> {
   return calendarItems.filter((item) => item.userId === CURRENT_USER_ID);
+}
+
+/** Format an ISO datetime as the compact UTC form Google Calendar links expect. */
+function toGoogleCalendarDate(iso: string): string {
+  return new Date(iso).toISOString().replace(/[-:]|\.\d{3}/g, "");
+}
+
+/**
+ * Build a Google Calendar "add event" URL for an event. No OAuth or API key
+ * needed — opening the link lets the user import the event into their own
+ * Google Calendar in one tap. Full two-way sync is a stretch goal.
+ */
+export function getGoogleCalendarUrl(event: SproutEvent): string {
+  const params = new URLSearchParams({
+    action: "TEMPLATE",
+    text: event.name,
+    details: event.description,
+    location: `${event.location.name}, ${event.location.address}`,
+    dates: `${toGoogleCalendarDate(event.startTime)}/${toGoogleCalendarDate(event.endTime)}`,
+  });
+  return `https://calendar.google.com/calendar/render?${params.toString()}`;
 }
 
 /** Reset all in-memory state — handy for demos and tests. */
