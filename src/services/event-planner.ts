@@ -12,9 +12,13 @@
  * it just has to return the same `SproutEvent` shape.
  */
 
-import type { AvailabilitySlot, Connection, SproutEvent, User } from '@/types';
+import type { AvailabilitySlot, Connection, SproutEvent, User } from "@/types";
 
-import { activityCatalog, type ActivityTemplate } from './mock-data';
+import {
+  activityCatalog,
+  fallbackActivity,
+  type ActivityTemplate,
+} from "./mock-data";
 
 export interface PlanRequest {
   /** The user whose review session just finished. */
@@ -44,9 +48,14 @@ export function intersectAvailability(
   const result: AvailabilitySlot[] = [];
   for (const slotA of a) {
     for (const slotB of b) {
-      const start = new Date(slotA.start) > new Date(slotB.start) ? slotA.start : slotB.start;
-      const end = new Date(slotA.end) < new Date(slotB.end) ? slotA.end : slotB.end;
-      const overlapHours = (new Date(end).getTime() - new Date(start).getTime()) / 3_600_000;
+      const start =
+        new Date(slotA.start) > new Date(slotB.start)
+          ? slotA.start
+          : slotB.start;
+      const end =
+        new Date(slotA.end) < new Date(slotB.end) ? slotA.end : slotB.end;
+      const overlapHours =
+        (new Date(end).getTime() - new Date(start).getTime()) / 3_600_000;
       if (overlapHours >= minHours) {
         result.push({ start, end });
       }
@@ -60,7 +69,10 @@ export function groupAvailability(users: User[]): AvailabilitySlot[] {
   if (users.length === 0) return [];
   return users
     .slice(1)
-    .reduce((acc, user) => intersectAvailability(acc, user.availability), users[0].availability);
+    .reduce(
+      (acc, user) => intersectAvailability(acc, user.availability),
+      users[0].availability,
+    );
 }
 
 /** Interests shared by every user in the group. */
@@ -69,7 +81,8 @@ export function sharedInterests(users: User[]): string[] {
   return users
     .slice(1)
     .reduce(
-      (acc, user) => acc.filter((interest) => user.interests.includes(interest)),
+      (acc, user) =>
+        acc.filter((interest) => user.interests.includes(interest)),
       users[0].interests,
     );
 }
@@ -103,7 +116,9 @@ function buildGroups(
   const byInterest = currentUser.interests
     .map((interest) => ({
       interest,
-      members: [...matches.values()].filter(({ user }) => user.interests.includes(interest)),
+      members: [...matches.values()].filter(({ user }) =>
+        user.interests.includes(interest),
+      ),
     }))
     .filter(({ members }) => members.length > 0)
     .sort((a, b) => b.members.length - a.members.length);
@@ -117,16 +132,13 @@ function buildGroups(
       const groupUsers = [currentUser, ...candidates.map(({ user }) => user)];
       const slots = groupAvailability(groupUsers);
       if (slots.length > 0) {
-        const interests = sharedInterests(groupUsers);
-        if (interests.length > 0) {
-          groups.push({
-            connections: candidates.map(({ connection }) => connection),
-            members: groupUsers,
-            interests,
-            slots,
-          });
-          candidates.forEach(({ user }) => placed.add(user.id));
-        }
+        groups.push({
+          connections: candidates.map(({ connection }) => connection),
+          members: groupUsers,
+          interests: sharedInterests(groupUsers),
+          slots,
+        });
+        candidates.forEach(({ user }) => placed.add(user.id));
         break;
       }
       candidates = candidates
@@ -136,16 +148,41 @@ function buildGroups(
     }
   }
 
+  // Leftover pass: approved matches with no shared interest (or who were
+  // dropped from every group) still get a one-on-one proposal if any time
+  // overlap exists. The planner never silently drops an approved connection
+  // it can schedule.
+  for (const { user, connection } of matches.values()) {
+    if (placed.has(user.id)) continue;
+    const groupUsers = [currentUser, user];
+    const slots = groupAvailability(groupUsers);
+    if (slots.length > 0) {
+      groups.push({
+        connections: [connection],
+        members: groupUsers,
+        interests: sharedInterests(groupUsers),
+        slots,
+      });
+      placed.add(user.id);
+    }
+  }
+
   return groups;
 }
 
-/** Pick the catalog activity that best fits the group's shared interests. */
-function chooseActivity(interests: string[]): ActivityTemplate | undefined {
+/**
+ * Pick the catalog activity that best fits the group's shared interests.
+ * Always returns something — the planner is autonomous, so a group with a
+ * time overlap but no catalog match still gets a generic catch-up proposed.
+ */
+function chooseActivity(interests: string[]): ActivityTemplate {
   for (const interest of interests) {
-    const match = activityCatalog.find((activity) => activity.interest === interest);
+    const match = activityCatalog.find(
+      (activity) => activity.interest === interest,
+    );
     if (match) return match;
   }
-  return undefined;
+  return fallbackActivity;
 }
 
 let planCounter = 0;
@@ -170,33 +207,44 @@ export const lookupPlanner: EventPlanner = {
     const events: SproutEvent[] = [];
     for (const group of buildGroups(currentUser, matches)) {
       const activity = chooseActivity(group.interests);
-      if (!activity) continue;
 
       // Book into the earliest common slot, trimmed to the activity length.
       const slot = group.slots
         .slice()
-        .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())[0];
+        .sort(
+          (a, b) => new Date(a.start).getTime() - new Date(b.start).getTime(),
+        )[0];
       const start = new Date(slot.start);
-      const maxHours = (new Date(slot.end).getTime() - start.getTime()) / 3_600_000;
+      const maxHours =
+        (new Date(slot.end).getTime() - start.getTime()) / 3_600_000;
       const end = new Date(start);
       end.setHours(end.getHours() + Math.min(activity.durationHours, maxHours));
 
       const names = group.members
         .filter((member) => member.id !== currentUserId)
         .map((member) => member.name);
+      const reason =
+        group.interests.length > 0
+          ? `you all share an interest in ${group.interests.join(", ")}`
+          : "you hit it off and your calendars line up";
 
       events.push({
         id: `evt-${Date.now()}-${planCounter++}`,
         name: activity.name,
-        description: `${activity.description}\n\nPlanned for you and ${names.join(', ')} — you all share an interest in ${group.interests.join(', ')}.`,
+        description: `${activity.description}\n\nPlanned for you and ${names.join(", ")} — ${reason}.`,
         location: { name: activity.venueName, address: activity.venueAddress },
         startTime: start.toISOString(),
         endTime: end.toISOString(),
-        activityTags: group.interests,
+        activityTags:
+          group.interests.length > 0
+            ? group.interests
+            : [fallbackActivity.interest],
         attendeeIds: group.members.map((member) => member.id),
         acceptedIds: [currentUserId],
-        sourceConnectionIds: group.connections.map((connection) => connection.id),
-        status: 'proposed',
+        sourceConnectionIds: group.connections.map(
+          (connection) => connection.id,
+        ),
+        status: "proposed",
       });
     }
 
