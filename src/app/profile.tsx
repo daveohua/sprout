@@ -14,16 +14,6 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import * as Notifications from "expo-notifications";
 import * as Device from "expo-device";
 
-// Configure how notifications are handled when the app is in the foreground
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-  }),
-});
-
 export default function ProfileScreen() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -31,29 +21,6 @@ export default function ProfileScreen() {
   const [interests, setInterests] = useState<string[]>([]);
   const [interestInput, setInterestInput] = useState("");
   const [expoPushToken, setExpoPushToken] = useState("");
-  useEffect(() => {
-    registerForPushNotificationsAsync().then((token) =>
-      setExpoPushToken(token || ""),
-    );
-
-    // This listener is fired whenever a notification is received while the app is foregrounded
-    const notificationListener = Notifications.addNotificationReceivedListener(
-      (notification) => {
-        console.log("Notification received:", notification);
-      },
-    );
-
-    // This listener is fired whenever a user taps on or interacts with a notification
-    const responseListener =
-      Notifications.addNotificationResponseReceivedListener((response) => {
-        console.log("Notification response:", response);
-      });
-
-    return () => {
-      notificationListener.remove();
-      responseListener.remove();
-    };
-  }, []);
 
   const addInterest = () => {
     const trimmed = interestInput.trim();
@@ -77,9 +44,6 @@ export default function ProfileScreen() {
     }
     // TODO: Persist profile data
     Alert.alert("Profile Saved", "Your profile has been updated.");
-
-    // Trigger a local push notification
-    await schedulePushNotification();
   };
 
   return (
@@ -255,52 +219,3 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
   },
 });
-
-// Function to schedule a local push notification
-async function schedulePushNotification() {
-  await Notifications.scheduleNotificationAsync({
-    content: {
-      title: "Profile Updated! 🎉",
-      body: "Your profile information has been saved successfully.",
-      data: { data: "goes here" },
-    },
-    trigger: {
-      type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
-      seconds: 2,
-    }, // Trigger after 2 seconds
-  });
-}
-
-// Function to register for push notifications
-async function registerForPushNotificationsAsync() {
-  let token;
-
-  if (Platform.OS === "android") {
-    await Notifications.setNotificationChannelAsync("default", {
-      name: "default",
-      importance: Notifications.AndroidImportance.MAX,
-      vibrationPattern: [0, 250, 250, 250],
-      lightColor: "#FF231F7C",
-    });
-  }
-
-  if (Device.isDevice) {
-    const { status: existingStatus } =
-      await Notifications.getPermissionsAsync();
-    let finalStatus = existingStatus;
-    if (existingStatus !== "granted") {
-      const { status } = await Notifications.requestPermissionsAsync();
-      finalStatus = status;
-    }
-    if (finalStatus !== "granted") {
-      alert("Failed to get push token for push notification!");
-      return;
-    }
-    token = (await Notifications.getExpoPushTokenAsync()).data;
-    console.log("Expo Push Token:", token);
-  } else {
-    alert("Must use physical device for Push Notifications");
-  }
-
-  return token;
-}
